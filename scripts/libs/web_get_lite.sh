@@ -2,7 +2,7 @@
 #$1:目标地址 $2:禁用proxy
 web_get_lite() {
 	[ -z "$2" ] && setproxy
-	if curl --version >/dev/null 2>&1; then
+	if curl --version >/dev/null 2>&1 && { [ -z "$http_proxy" ] || curl --version 2>&1 | grep -qi proxy; }; then
 		curl -ksSl --connect-timeout 10 "$1" 2>/dev/null
 	else
 		wget -Y on -q --timeout=10 -O - "$1"

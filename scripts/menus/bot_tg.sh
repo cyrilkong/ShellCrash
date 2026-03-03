@@ -15,18 +15,37 @@ LOGFILE="$TMPDIR/tgbot.log"
 OFFSET=0
 
 ### --- 基础函数 --- ###
+_curl_ok(){
+	curl --version >/dev/null 2>&1 && { [ -z "$http_proxy" ] || curl --version 2>&1 | grep -qi proxy; }
+}
 web_download(){
 	setproxy
-	if curl --version >/dev/null 2>&1; then
-		curl -kfsSl "$1" -o "$2"
+	if _curl_ok; then
+		curl -kfsSl --connect-timeout 10 "$1" -o "$2"
 	else
-		wget -Y on -q --timeout=3 -O "$2" "$1"
+		wget -Y on -q --timeout=10 -O "$2" "$1"
 	fi
 }
 web_upload(){
 	setproxy
-	RESPONSE=$(curl -ksSfl -X POST --connect-timeout 30 --max-time 60 "$API/sendDocument" \
-		-F "chat_id=$TG_CHATID" -F "document=@$1" 2>&1)
+	if _curl_ok; then
+		RESPONSE=$(curl -ksSfl -X POST --connect-timeout 30 --max-time 60 "$API/sendDocument" \
+			-F "chat_id=$TG_CHATID" -F "document=@$1" 2>&1)
+	else
+		BOUNDARY="----ShellCrashUpload$(date +%s)"
+		FILE_NAME=$(basename "$1")
+		{
+			printf -- "--%s\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n%s\r\n" "$BOUNDARY" "$TG_CHATID"
+			printf -- "--%s\r\nContent-Disposition: form-data; name=\"document\"; filename=\"%s\"\r\nContent-Type: application/octet-stream\r\n\r\n" "$BOUNDARY" "$FILE_NAME"
+			cat "$1"
+			printf "\r\n--%s--\r\n" "$BOUNDARY"
+		} > "$TMPDIR/upload_body"
+		RESPONSE=$(wget -Y on -q --timeout=60 -O - \
+			--header="Content-Type: multipart/form-data; boundary=$BOUNDARY" \
+			--post-file="$TMPDIR/upload_body" \
+			"$API/sendDocument" 2>&1)
+		rm -f "$TMPDIR/upload_body"
+	fi
 	if echo "$RESPONSE" | grep -q '"ok":true'; then
 		return 0
 	else
