@@ -3,8 +3,8 @@
 web_get_lite() {
 	[ -z "$2" ] && setproxy
 	if curl --version >/dev/null 2>&1; then
-		curl -ksSl --connect-timeout 3 "$1" 2>/dev/null
+		curl -ksSl --connect-timeout 10 "$1" 2>/dev/null
 	else
-		wget -Y on -q --timeout=3 -O - "$1"
+		wget -Y on -q --timeout=10 -O - "$1"
 	fi
 }
