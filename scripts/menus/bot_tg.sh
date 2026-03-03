@@ -24,7 +24,18 @@ web_download(){
 	fi
 }
 web_upload(){
-	curl -ksSfl -X POST --connect-timeout 20 "$API/sendDocument" -F "chat_id=$TG_CHATID" -F "document=@$1" >/dev/null
+	setproxy
+	RESPONSE=$(curl -ksSfl -X POST --connect-timeout 30 --max-time 60 "$API/sendDocument" \
+		-F "chat_id=$TG_CHATID" -F "document=@$1" 2>&1)
+	if echo "$RESPONSE" | grep -q '"ok":true'; then
+		return 0
+	else
+		echo "Upload failed: $RESPONSE" >&2
+		return 1
+	fi
+}
+answer_callback(){
+	web_json_post "$API/answerCallbackQuery" "{\"callback_query_id\":\"$1\"}"
 }
 send_msg(){
     TEXT="$1"
@@ -184,21 +195,33 @@ do_set_sub(){
 transport(){ #文件传输
 	case "$CALLBACK" in
 		"ts_get_log")
-			web_upload "$TMPDIR"/ShellCrash.log
+			if web_upload "$TMPDIR"/ShellCrash.log; then
+				send_msg "✅ 日志已发送"
+			else
+				send_msg "❌ 日志上传失败"
+			fi
 			send_menu 
 		;;
 		"ts_get_bak")
 			now=$(date +%Y%m%d_%H%M%S)
 			FILE="$TMPDIR/configs_$now.tar.gz"
 			tar -zcf "$FILE" -C "$CRASHDIR/configs/" .
-			web_upload "$FILE"
+			if web_upload "$FILE"; then
+				send_msg "✅ 配置备份已发送"
+			else
+				send_msg "❌ 配置备份上传失败"
+			fi
 			rm -rf "$FILE"
 			send_menu 
 		;;
 		"ts_get_ccf")
 			FILE="$TMPDIR/$config_type.tar.gz"
 			tar -zcf "$FILE" -C "$CRASHDIR/${config_type}s/" .
-			web_upload "$FILE"
+			if web_upload "$FILE"; then
+				send_msg "✅ 配置文件已发送"
+			else
+				send_msg "❌ 配置文件上传失败"
+			fi
 			rm -rf "$FILE"
 			send_menu 
 		;;
@@ -235,15 +258,18 @@ polling(){
 		[ "$CHATID" != "$TG_CHATID" ] && continue
 		
 		### --- 处理按钮事件 --- ###
+		CALLBACK_ID=$(echo "$UPDATES" | grep -o '"id":"[^"]*"' | grep 'callback_query' -B1 | grep '"id"' | sed 's/.*"id":"//;s/".*$//')
 		CALLBACK=$(echo "$UPDATES" | grep -o '"data":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
 		FILE_ID=$(echo "$UPDATES" | sed 's/"callback_query".*//g' | grep -o '"file_id":"[^"]*"' | head -n1 | sed 's/.*:"//;s/"$//')
 		
 		[ -n "$FILE_ID" ] && {
+			[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 			download_file
 			continue
 		}
 		[ -n "$CALLBACK" ] && case "$CALLBACK" in
 			"start_redir")
+				[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 				if [ "$firewall_area" = 4 ];then
 					do_start_fw
 					send_msg  "已切换到$redir_mod_bf！"
@@ -254,6 +280,7 @@ polling(){
 				continue
 			;;
 			"stop_redir")
+				[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 				if [ "$firewall_area" != 4 ];then
 					do_stop_fw
 					send_msg  "已切换到纯净模式"
@@ -264,6 +291,7 @@ polling(){
 				continue
 			;;
 			"restart")
+				[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 				do_restart
 				send_msg  "🔄 服务已重启"
 				sleep 10
@@ -271,12 +299,14 @@ polling(){
 				continue
 			;;
 			"readlog")
+				[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 				send_msg  "📄 日志内容如下(已过滤任务日志)：\n\`\`\`$(grep -v '任务' $TMPDIR/ShellCrash.log |tail -n 20)\`\`\`"
 				sleep 3
 				send_menu 
 				continue
 			;;
 			"transport")
+				[ -n "$CALLBACK_ID" ] && answer_callback "$CALLBACK_ID"
 				send_transport_menu
 				continue
 			;;
